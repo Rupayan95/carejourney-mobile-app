@@ -18,8 +18,10 @@ export function useInvoices(params?: Record<string, string>) {
   return useQuery<InvoiceSummary[]>({
     queryKey: ['invoices', params],
     queryFn: async () => {
-      const res = await api.get('/billing/invoices', { params });
-      return res.data.data.invoices;
+      // No "list all invoices" endpoint exists — the billing dashboard shows
+      // invoices with an outstanding balance (same as the web app).
+      const res = await api.get('/billing/outstanding', { params });
+      return res.data?.data?.invoices ?? [];
     },
   });
 }

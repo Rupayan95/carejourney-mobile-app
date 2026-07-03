@@ -42,6 +42,11 @@ export default function RootLayout() {
           <Stack.Screen name="live-consultation/[id]" options={{ headerShown: false }} />
           <Stack.Screen name="consultation-review/[id]" options={{ headerShown: false }} />
           <Stack.Screen name="consultation/[id]" options={{ headerShown: false }} />
+          <Stack.Screen name="register/methods" options={{ headerShown: false }} />
+          <Stack.Screen name="register/manual" options={{ headerShown: false }} />
+          <Stack.Screen name="register/live-intake" options={{ headerShown: false }} />
+          <Stack.Screen name="register/doc-ocr" options={{ headerShown: false }} />
+          <Stack.Screen name="create-invoice" options={{ headerShown: false }} />
           <Stack.Screen
             name="prescription/[id]"
             options={{ title: 'Prescription', ...headerScreen }}

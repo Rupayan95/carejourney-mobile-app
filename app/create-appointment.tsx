@@ -1,5 +1,5 @@
 import { colors } from '../src/theme';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity,
   ActivityIndicator, Alert, FlatList, Modal,
@@ -9,6 +9,7 @@ import { usePatients } from '../src/hooks/usePatients';
 import { useDoctors, useAvailableSlots } from '../src/hooks/useDoctors';
 import { useUser } from '../src/context/UserContext';
 import { api } from '../src/lib/api';
+import { DatePicker } from '../src/components/ui';
 
 const TYPES = ['initial', 'follow_up', 'urgent', 'emergency', 'check_up'];
 const MODALITIES = ['in_person', 'virtual', 'hybrid'];
@@ -26,6 +27,18 @@ export default function CreateAppointmentScreen() {
   const [modality, setModality] = useState('in_person');
   const [duration, setDuration] = useState(30);
   const [reason, setReason] = useState('');
+  const [charge, setCharge] = useState('');
+
+  // Auto-fill the appointment charge from the doctor's fee schedule by type.
+  useEffect(() => {
+    if (!selectedDoctor) return;
+    const map: Record<string, string> = { initial: 'initial', follow_up: 'follow_up', emergency: 'emergency', urgent: 'emergency', check_up: 'follow_up' };
+    const fees = selectedDoctor.consultation_fees;
+    let fee: number | undefined;
+    if (fees) fee = fees[map[apptType] ?? 'initial'];
+    else if (selectedDoctor.consultation_fee != null) fee = selectedDoctor.consultation_fee;
+    if (fee != null) setCharge(String(fee));
+  }, [selectedDoctor, apptType]);
 
   // Search states
   const [patientSearch, setPatientSearch] = useState('');
@@ -59,6 +72,20 @@ export default function CreateAppointmentScreen() {
 
     setSaving(true);
     try {
+      // Ensure an active journey exists first — the backend advances it
+      // ONBOARD → APPOINTMENT when the appointment is created, but only if a
+      // journey exists (it never auto-creates one). Mirrors the web flow.
+      try {
+        const jr = await api.get('/journeys', { params: { patient_id: selectedPatient.patient_id, limit: 1 } });
+        const active = (jr.data?.data?.journeys ?? [])[0];
+        const needsNew = !active || ['completed', 'cancelled', 'on_hold'].includes(active.status);
+        if (needsNew && user?.organization_id) {
+          await api.post('/journeys', { patient_id: selectedPatient.patient_id, organization_id: user.organization_id });
+        }
+      } catch {
+        // Non-fatal — proceed with the appointment even if journey setup fails.
+      }
+
       await api.post('/appointments', {
         patient_id: selectedPatient.patient_id,
         doctor_id: selectedDoctor.doctor_id,
@@ -66,6 +93,7 @@ export default function CreateAppointmentScreen() {
         appointment_type: apptType,
         modality,
         duration_minutes: duration,
+        estimated_fee: charge ? Number(charge) : undefined,
         reason: reason || undefined,
       });
       Alert.alert('Success', 'Appointment created successfully', [
@@ -116,12 +144,10 @@ export default function CreateAppointmentScreen() {
 
       {/* Date */}
       <Text style={styles.label}>Date *</Text>
-      <TextInput
-        style={styles.input}
+      <DatePicker
         value={selectedDate}
-        onChangeText={v => { setSelectedDate(v); setSelectedSlot(null); }}
-        placeholder="YYYY-MM-DD (e.g. 2026-07-01)"
-        placeholderTextColor="#aaa"
+        onChange={v => { setSelectedDate(v); setSelectedSlot(null); }}
+        placeholder="Select appointment date"
       />
 
       {/* Time Slots */}
@@ -195,6 +221,17 @@ export default function CreateAppointmentScreen() {
           </TouchableOpacity>
         ))}
       </View>
+
+      {/* Appointment Charge */}
+      <Text style={styles.label}>Appointment Charge (INR)</Text>
+      <TextInput
+        style={styles.input}
+        value={charge}
+        onChangeText={setCharge}
+        placeholder="Auto-filled from doctor's fee"
+        placeholderTextColor="#aaa"
+        keyboardType="numeric"
+      />
 
       {/* Reason */}
       <Text style={styles.label}>Reason for Visit</Text>

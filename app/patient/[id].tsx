@@ -1,25 +1,44 @@
-import { colors } from '../../src/theme';
+import { colors, font } from '../../src/theme';
 import { useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   ActivityIndicator, FlatList, Alert,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Linking } from 'react-native';
 import {
   usePatientDetail,
   usePatientConsultations,
   usePatientPrescriptions,
   usePatientAppointments,
+  usePatientDocuments,
+  usePatientAlerts,
+  usePatientJourney,
 } from '../../src/hooks/usePatientDetail';
+import { useQueryClient } from '@tanstack/react-query';
 import { parseBackendDate } from '../../src/lib/datetime';
 import { printPrescriptionById } from '../../src/lib/prescription-print';
+import { VitalsSection } from '../../src/components/VitalsSection';
+import { usePatientVitals } from '../../src/hooks/usePatientVitals';
+import { formatDate } from '../../src/lib/datetime';
+import { Icon, Select, Button, Input } from '../../src/components/ui';
+import { api } from '../../src/lib/api';
+import { useUser } from '../../src/context/UserContext';
+import { ALERT_TYPES, alertMeta } from '../../src/lib/patient-alerts';
 
-const TABS = ['Overview', 'Health Records', 'Encounters', 'Prescriptions', 'Appointments'];
+const MAIN_TABS = [
+  { key: 'overview', label: 'Overview', sub: [{ k: 'info', l: 'Information' }, { k: 'alerts', l: 'Alerts' }, { k: 'summary', l: 'Summary' }] },
+  { key: 'health', label: 'Health Records', sub: [{ k: 'history', l: 'General History' }, { k: 'vitals', l: 'Vitals' }, { k: 'appointments', l: 'Appointments' }] },
+  { key: 'encounters', label: 'Encounters', sub: [{ k: 'consultations', l: 'Consultations' }] },
+  { key: 'prescriptions', label: 'Prescriptions', sub: [{ k: 'medications', l: 'Medications' }] },
+  { key: 'files', label: 'Medical Files', sub: [{ k: 'registration_form', l: 'Registration' }, { k: 'lab_report', l: 'Lab Reports' }, { k: 'imaging', l: 'Imaging' }, { k: 'prescription', l: 'Prescriptions' }, { k: 'other', l: 'Other' }] },
+];
 
 export default function PatientDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState('Overview');
+  const [main, setMain] = useState(0);
+  const [sub, setSub] = useState(0);
   const { data: patient, isLoading } = usePatientDetail(id);
 
   if (isLoading) {
@@ -29,13 +48,13 @@ export default function PatientDetailScreen() {
     return <View style={styles.center}><Text style={styles.error}>Patient not found</Text></View>;
   }
 
-  const dob = patient.demographics?.date_of_birth
-    ? new Date(patient.demographics.date_of_birth)
-    : null;
-  const age = dob
-    ? Math.floor((Date.now() - dob.getTime()) / 3.156e10)
-    : null;
+  const dob = patient.demographics?.date_of_birth ? new Date(patient.demographics.date_of_birth) : null;
+  const age = dob ? Math.floor((Date.now() - dob.getTime()) / 3.156e10) : null;
   const fullName = `${patient.demographics?.first_name ?? ''} ${patient.demographics?.middle_name ? patient.demographics.middle_name + ' ' : ''}${patient.demographics?.last_name ?? ''}`.trim();
+
+  const mainTab = MAIN_TABS[main];
+  const subKey = mainTab.sub[sub]?.k ?? mainTab.sub[0].k;
+  function selectMain(i: number) { setMain(i); setSub(0); }
 
   return (
     <View style={styles.container}>
@@ -45,41 +64,235 @@ export default function PatientDetailScreen() {
           <Text style={styles.backText}>← Back</Text>
         </TouchableOpacity>
         <View style={styles.avatar}>
-          <Text style={styles.avatarText}>
-            {(patient.demographics?.first_name?.[0] ?? '') + (patient.demographics?.last_name?.[0] ?? '')}
-          </Text>
+          <Text style={styles.avatarText}>{(patient.demographics?.first_name?.[0] ?? '') + (patient.demographics?.last_name?.[0] ?? '')}</Text>
         </View>
         <Text style={styles.patientName}>{fullName}</Text>
         <Text style={styles.patientMeta}>
           {patient.demographics?.gender ?? ''}{age ? ` · ${age}y` : ''}
           {patient.demographics?.blood_group ? ` · ${patient.demographics.blood_group}` : ''}
         </Text>
-        <View style={[styles.statusBadge, patient.status === 'active' ? styles.activeStatus : styles.inactiveStatus]}>
-          <Text style={styles.statusText}>{patient.status}</Text>
-        </View>
       </View>
 
-      {/* Tabs */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabBar}>
-        {TABS.map(tab => (
-          <TouchableOpacity
-            key={tab}
-            style={[styles.tab, activeTab === tab && styles.tabActive]}
-            onPress={() => setActiveTab(tab)}
-          >
-            <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>{tab}</Text>
+      {/* Journey stepper — always visible above the tabs */}
+      <JourneyStepper patientId={id} fallback={patient.journeys?.[0]} />
+
+      {/* Main tabs */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabBar} contentContainerStyle={{ alignItems: 'center' }}>
+        {MAIN_TABS.map((t, i) => (
+          <TouchableOpacity key={t.key} style={[styles.tab, main === i && styles.tabActive]} onPress={() => selectMain(i)}>
+            <Text style={[styles.tabText, main === i && styles.tabTextActive]}>{t.label}</Text>
           </TouchableOpacity>
         ))}
       </ScrollView>
 
+      {/* Sub tabs */}
+      {mainTab.sub.length > 1 && (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.subTabBar} contentContainerStyle={{ paddingHorizontal: 12, gap: 8, alignItems: 'center' }}>
+          {mainTab.sub.map((s, i) => (
+            <TouchableOpacity key={s.k} style={[styles.subTab, sub === i && styles.subTabActive]} onPress={() => setSub(i)}>
+              <Text style={[styles.subTabText, sub === i && styles.subTabTextActive]}>{s.l}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      )}
+
       {/* Content */}
       <ScrollView style={styles.content} contentContainerStyle={{ paddingBottom: 40 }}>
-        {activeTab === 'Overview' && <OverviewTab patient={patient} />}
-        {activeTab === 'Health Records' && <HealthRecordsTab patient={patient} />}
-        {activeTab === 'Encounters' && <EncountersTab patientId={id} />}
-        {activeTab === 'Prescriptions' && <PrescriptionsTab patientId={id} />}
-        {activeTab === 'Appointments' && <AppointmentsTab patientId={id} />}
+        {/* Patient summary shown on Overview */}
+        {mainTab.key === 'overview' && <PatientSummaryCard patient={patient} patientId={id} />}
+
+        {mainTab.key === 'overview' && subKey === 'info' && <OverviewTab patient={patient} />}
+        {mainTab.key === 'overview' && subKey === 'alerts' && <AlertsTab patientId={id} />}
+        {mainTab.key === 'overview' && subKey === 'summary' && <SummaryTab patient={patient} />}
+
+        {mainTab.key === 'health' && subKey === 'history' && <HealthRecordsTab patient={patient} />}
+        {mainTab.key === 'health' && subKey === 'vitals' && <View style={styles.tabContent}><VitalsSection patientId={id} /></View>}
+        {mainTab.key === 'health' && subKey === 'appointments' && <AppointmentsTab patientId={id} />}
+
+        {mainTab.key === 'encounters' && <EncountersTab patientId={id} />}
+        {mainTab.key === 'prescriptions' && <PrescriptionsTab patientId={id} />}
+        {mainTab.key === 'files' && <MedicalFilesTab patientId={id} category={subKey} />}
       </ScrollView>
+    </View>
+  );
+}
+
+// ── Journey Stepper ───────────────────────────────────────────────────────────
+const JOURNEY_STEPS = [
+  { key: 'onboard', label: 'Onboard', icon: 'home-outline' as const },
+  { key: 'appointment', label: 'Appointment', icon: 'calendar-outline' as const },
+  { key: 'pre_consultation', label: 'Pre-Consult', icon: 'clipboard-outline' as const },
+  { key: 'consultation', label: 'Consultation', icon: 'medkit-outline' as const },
+  { key: 'doctor_view', label: 'Doctor Review', icon: 'person-outline' as const },
+  { key: 'prescription', label: 'Prescription', icon: 'medical-outline' as const },
+  { key: 'billing', label: 'Billing', icon: 'card-outline' as const },
+];
+
+function JourneyStepper({ patientId, fallback }: { patientId: string; fallback?: any }) {
+  const { data: full } = usePatientJourney(patientId);
+  const journey = full ?? fallback;
+  const currentStep = journey?.current_step;
+  const currentIdx = journey ? Math.max(0, JOURNEY_STEPS.findIndex((s) => s.key === currentStep)) : 0;
+  const journeyDone = journey?.status === 'completed';
+  // Web logic: prefer each step's own status from steps[], fall back to current_step index.
+  const stepStatus = (i: number, key: string): 'done' | 'current' | 'pending' => {
+    if (journeyDone) return 'done';
+    const rec = (journey?.steps ?? []).find((r: any) => r.step === key);
+    if (rec?.status === 'completed') return 'done';
+    if (rec?.status === 'active') return 'current';
+    if (currentStep === key) return 'current';
+    if (i < currentIdx) return 'done';
+    if (i === currentIdx) return 'current';
+    return 'pending';
+  };
+  return (
+    <View style={styles.journeyCard}>
+      <View style={styles.journeyHead}>
+        <Text style={styles.journeyTitle}>Patient Journey</Text>
+        {journey?.status && (
+          <View style={[styles.jBadge, { backgroundColor: colors.primaryTint }]}>
+            <Text style={[styles.jBadgeText, { color: colors.primaryDeep }]}>{String(journey.status).replace(/_/g, ' ')}</Text>
+          </View>
+        )}
+      </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ alignItems: 'flex-start', paddingVertical: 4 }}>
+        {JOURNEY_STEPS.map((s, i) => {
+          const st = stepStatus(i, s.key);
+          const done = st === 'done';
+          const active = st === 'current';
+          const color = done ? colors.success : active ? colors.primary : colors.inkFaint;
+          const bg = done ? colors.successTint : active ? colors.primary : colors.surfaceAlt;
+          return (
+            <View key={s.key} style={styles.stepWrap}>
+              <View style={styles.stepRow}>
+                {i > 0 && <View style={[styles.stepLine, { backgroundColor: i <= currentIdx ? colors.success : colors.border }]} />}
+                <View style={[styles.stepCircle, { backgroundColor: bg, borderColor: color }]}>
+                  <Icon name={done ? 'checkmark' : s.icon} size={16} color={active ? colors.white : color} />
+                </View>
+                {i < JOURNEY_STEPS.length - 1 && <View style={[styles.stepLine, { backgroundColor: i < currentIdx ? colors.success : colors.border }]} />}
+              </View>
+              <Text style={[styles.stepLabel, { color: active ? colors.primary : colors.inkFaint, fontWeight: active ? '700' : '400' }]} numberOfLines={2}>{s.label}</Text>
+            </View>
+          );
+        })}
+      </ScrollView>
+    </View>
+  );
+}
+
+// ── Patient Summary Card ──────────────────────────────────────────────────────
+function PatientSummaryCard({ patient, patientId }: { patient: any; patientId: string }) {
+  const ms = patient.medical_summary ?? {};
+  const conditions = (ms.chronic_conditions ?? []).map((c: any) => c.description ?? c.code).filter(Boolean);
+  const meds = (ms.current_medications ?? []).map((m: any) => `${m.name}${m.dosage ? ` ${m.dosage}` : ''}`);
+  const allergies = (patient.allergies ?? ms.allergies ?? []).map((a: any) => a.allergen).filter(Boolean);
+  const { data: vitals } = usePatientVitals(patientId);
+  const { data: alerts } = usePatientAlerts(patientId);
+  const v = vitals?.[0];
+
+  return (
+    <View style={styles.summaryCard}>
+      <SummaryRow icon="alert-circle-outline" label="Principal Problem" value={conditions[0] ?? 'Not recorded'} />
+      <SummaryRow icon="warning-outline" label="Allergies" value={allergies.length ? allergies.join(', ') : 'No known allergies'} />
+      <SummaryRow icon="medical-outline" label="Active Medications" value={meds.length ? meds.slice(0, 3).join(' · ') + (meds.length > 3 ? ` +${meds.length - 3}` : '') : 'None'} />
+      {v && <SummaryRow icon="pulse-outline" label="Latest Vitals" value={[v.bp && `BP ${v.bp}`, v.hr && `HR ${v.hr}`, v.spo2 && `SpO₂ ${v.spo2}`, v.temp && `T ${v.temp}°${v.tempUnit ?? ''}`].filter(Boolean).join(' · ') || '—'} />}
+      {alerts && alerts.length > 0 && (
+        <View style={styles.flagRow}>
+          {alerts.map((a: any, i: number) => {
+            const m = alertMeta(a.alert_type);
+            return <View key={a.alert_id ?? i} style={[styles.flagChip, { backgroundColor: m.tint }]}><Text style={[styles.flagText, { color: m.color }]}>{m.label}</Text></View>;
+          })}
+        </View>
+      )}
+      <View style={styles.summaryStatus}>
+        <View style={[styles.statusDot, { backgroundColor: patient.status === 'active' ? colors.success : colors.inkFaint }]} />
+        <Text style={styles.summaryStatusText}>Status: {patient.status ?? 'unknown'}</Text>
+      </View>
+    </View>
+  );
+}
+
+function SummaryRow({ icon, label, value }: { icon: any; label: string; value: string }) {
+  return (
+    <View style={styles.sumRow}>
+      <Icon name={icon} size={15} color={colors.primary} />
+      <View style={{ flex: 1 }}>
+        <Text style={styles.sumLabel}>{label}</Text>
+        <Text style={styles.sumValue}>{value}</Text>
+      </View>
+    </View>
+  );
+}
+
+// ── Alerts Tab (patient safety alerts) ────────────────────────────────────────
+function AlertsTab({ patientId }: { patientId: string }) {
+  const { user } = useUser();
+  const qc = useQueryClient();
+  const { data: alerts, isLoading } = usePatientAlerts(patientId);
+  const [adding, setAdding] = useState(false);
+  const [type, setType] = useState('risk_violent_behavior');
+  const [desc, setDesc] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const canAdd = ['receptionist', 'nurse', 'physician', 'therapist', 'admin'].includes(user?.role ?? '');
+
+  async function addAlert() {
+    setSaving(true);
+    try {
+      await api.post(`/patients/${patientId}/patient-alerts`, { alert_type: type, description: desc || undefined });
+      qc.invalidateQueries({ queryKey: ['patient-alerts', patientId] });
+      setAdding(false); setDesc(''); setType('risk_violent_behavior');
+    } catch (e: any) {
+      Alert.alert('Error', e?.response?.data?.detail ?? 'Failed to add alert');
+    } finally { setSaving(false); }
+  }
+
+  return (
+    <View style={styles.tabContent}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <Text style={styles.sectionTitle}>Patient Safety Alerts</Text>
+        {canAdd && <Button label={adding ? 'Cancel' : 'Add Alert'} icon={adding ? 'close' : 'add'} size="sm" fullWidth={false} variant={adding ? 'outline' : 'primary'} onPress={() => setAdding(!adding)} />}
+      </View>
+
+      {adding && (
+        <View style={[styles.subCard, { padding: 14, marginBottom: 12 }]}>
+          <Select label="Alert Type" options={ALERT_TYPES.map((t) => ({ label: t.label, value: t.value }))} value={type} onChange={(v) => setType(v || 'risk_violent_behavior')} containerStyle={{ marginBottom: 12 }} />
+          <Input label="Description" value={desc} onChangeText={setDesc} placeholder="Optional details" containerStyle={{ marginBottom: 12 }} />
+          <Button label="Save Alert" onPress={addAlert} loading={saving} />
+        </View>
+      )}
+
+      {isLoading ? <ActivityIndicator style={{ marginTop: 24 }} color={colors.primary} />
+        : !alerts?.length ? <Text style={styles.empty}>No active alerts</Text>
+        : alerts.map((a: any, i: number) => {
+          const m = alertMeta(a.alert_type);
+          return (
+            <View key={a.alert_id ?? i} style={[styles.alertBanner, { backgroundColor: m.tint, borderLeftColor: m.color }]}>
+              <Icon name="alert-circle" size={18} color={m.color} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.alertBannerTitle, { color: m.color }]}>{a.custom_alert_text || m.label}</Text>
+                {a.description ? <Text style={styles.subCardMeta}>{a.description}</Text> : null}
+              </View>
+            </View>
+          );
+        })}
+    </View>
+  );
+}
+
+// ── Summary Tab ───────────────────────────────────────────────────────────────
+function SummaryTab({ patient }: { patient: any }) {
+  const ms = patient.medical_summary ?? {};
+  return (
+    <View style={styles.tabContent}>
+      <Section title="Chronic Conditions">
+        {(ms.chronic_conditions ?? []).length === 0 ? <Text style={styles.empty}>None recorded</Text>
+          : ms.chronic_conditions.map((c: any, i: number) => <Text key={i} style={styles.subCardMeta}>• {c.description ?? c.code}</Text>)}
+      </Section>
+      <Section title="Active Medications">
+        {(ms.current_medications ?? []).length === 0 ? <Text style={styles.empty}>None recorded</Text>
+          : ms.current_medications.map((m: any, i: number) => <Text key={i} style={styles.subCardMeta}>• {m.name} {m.dosage ?? ''} {m.frequency ?? ''}</Text>)}
+      </Section>
     </View>
   );
 }
@@ -293,6 +506,52 @@ function PrescriptionsTab({ patientId }: { patientId: string }) {
   );
 }
 
+// ── Medical Files Tab ─────────────────────────────────────────────────────────
+function MedicalFilesTab({ patientId, category }: { patientId: string; category?: string }) {
+  const { data, isLoading } = usePatientDocuments(patientId);
+
+  function fmtSize(b?: number) {
+    if (!b) return '';
+    return b < 1024 ? `${b} B` : b < 1048576 ? `${Math.round(b / 1024)} KB` : `${(b / 1048576).toFixed(1)} MB`;
+  }
+
+  const filtered = (data ?? []).filter((d: any) => {
+    if (!category) return true;
+    const cat = (d.doc_category ?? d.doc_type ?? 'other').toString();
+    if (category === 'other') return !['registration_form', 'lab_report', 'imaging', 'prescription'].includes(cat);
+    return cat === category;
+  });
+
+  if (isLoading) return <ActivityIndicator style={{ marginTop: 32 }} color={colors.primary} />;
+  if (!filtered.length) return <Text style={[styles.empty, { margin: 20 }]}>No documents in this category</Text>;
+
+  return (
+    <View style={styles.tabContent}>
+      {filtered.map((d: any) => (
+        <TouchableOpacity
+          key={d.document_id}
+          style={styles.subCard}
+          activeOpacity={0.7}
+          onPress={() => d.file_url && Linking.openURL(d.file_url)}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <View style={styles.docIcon}><Icon name="document-text-outline" size={20} color={colors.primary} /></View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.subCardTitle} numberOfLines={1}>{d.file_name}</Text>
+              <Text style={styles.subCardMeta}>
+                {(d.doc_category ?? d.doc_type ?? 'document').toString().replace(/_/g, ' ')}
+                {d.file_size_bytes ? ` · ${fmtSize(d.file_size_bytes)}` : ''}
+                {d.created_at ? ` · ${formatDate(d.created_at)}` : ''}
+              </Text>
+            </View>
+            <Icon name="open-outline" size={18} color={colors.inkFaint} />
+          </View>
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+}
+
 // ── Appointments Tab ──────────────────────────────────────────────────────────
 function AppointmentsTab({ patientId }: { patientId: string }) {
   const { data, isLoading } = usePatientAppointments(patientId);
@@ -376,7 +635,34 @@ const styles = StyleSheet.create({
   tabActive: { borderBottomColor: colors.primary },
   tabText: { fontSize: 13, color: '#888', fontWeight: '500' },
   tabTextActive: { color: colors.primary, fontWeight: '700' },
+  subTabBar: { backgroundColor: colors.surfaceAlt, borderBottomWidth: 1, borderBottomColor: colors.border, flexGrow: 0, paddingVertical: 8 },
+  subTab: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 999, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+  subTabActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  subTabText: { fontSize: 12, color: colors.inkSoft, fontWeight: '500' },
+  subTabTextActive: { color: colors.white, fontWeight: '700' },
   content: { flex: 1 },
+  // Journey stepper
+  journeyCard: { backgroundColor: colors.surface, margin: 16, marginBottom: 8, borderRadius: 14, borderWidth: 1, borderColor: colors.borderSoft, padding: 14 },
+  journeyHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  journeyTitle: { fontFamily: font.semibold, fontSize: 14, color: colors.ink },
+  jBadge: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3 },
+  jBadgeText: { fontFamily: font.semibold, fontSize: 11, textTransform: 'capitalize' },
+  stepWrap: { alignItems: 'center', width: 74 },
+  stepRow: { flexDirection: 'row', alignItems: 'center', width: '100%', justifyContent: 'center' },
+  stepLine: { flex: 1, height: 2 },
+  stepCircle: { width: 34, height: 34, borderRadius: 17, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  stepLabel: { fontFamily: font.regular, fontSize: 10, textAlign: 'center', marginTop: 4 },
+  // Summary card
+  summaryCard: { backgroundColor: colors.surface, marginHorizontal: 16, marginBottom: 12, borderRadius: 14, borderWidth: 1, borderColor: colors.borderSoft, padding: 14, gap: 10 },
+  sumRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  sumLabel: { fontFamily: font.medium, fontSize: 10, color: colors.inkFaint, textTransform: 'uppercase', letterSpacing: 0.4 },
+  sumValue: { fontFamily: font.regular, fontSize: 13, color: colors.ink, marginTop: 1 },
+  flagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  flagChip: { backgroundColor: colors.dangerTint, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 },
+  flagText: { fontFamily: font.semibold, fontSize: 10, color: colors.danger, textTransform: 'capitalize' },
+  summaryStatus: { flexDirection: 'row', alignItems: 'center', gap: 6, borderTopWidth: 1, borderTopColor: colors.borderSoft, paddingTop: 8 },
+  statusDot: { width: 8, height: 8, borderRadius: 4 },
+  summaryStatusText: { fontFamily: font.medium, fontSize: 12, color: colors.inkSoft, textTransform: 'capitalize' },
   tabContent: { padding: 16 },
   section: { marginBottom: 20 },
   sectionTitle: { fontSize: 13, fontWeight: '700', color: colors.primary, textTransform: 'uppercase', marginBottom: 10, letterSpacing: 0.5 },
@@ -397,6 +683,9 @@ const styles = StyleSheet.create({
     alignItems: 'center', borderWidth: 1, borderColor: colors.primary,
   },
   rxPdfBtnText: { color: colors.primary, fontWeight: '700', fontSize: 13 },
+  docIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.primaryTint, alignItems: 'center', justifyContent: 'center' },
+  alertBanner: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, borderLeftWidth: 4, borderRadius: 10, padding: 12, marginBottom: 8 },
+  alertBannerTitle: { fontFamily: font.semibold, fontSize: 14 },
   alertBox: { backgroundColor: colors.warningTint, borderRadius: 10, padding: 14, marginBottom: 16, borderLeftWidth: 4, borderLeftColor: colors.warning },
   alertTitle: { fontSize: 14, fontWeight: '700', color: colors.warning, marginBottom: 6 },
   alertItem: { fontSize: 13, color: colors.warning, marginTop: 2 },

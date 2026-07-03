@@ -9,6 +9,8 @@ import { useConsultation } from '../../src/hooks/useConsultations';
 import { api } from '../../src/lib/api';
 import { useUser } from '../../src/context/UserContext';
 import { printPrescriptionById } from '../../src/lib/prescription-print';
+import { catchUpJourneyToPrescription } from '../../src/lib/journey';
+import { useQueryClient } from '@tanstack/react-query';
 
 interface Template { template_id: string; name: string; template_type: string }
 interface Medication { drug_name: string; dosage: string; frequency: string; duration: string; instructions: string }
@@ -16,6 +18,7 @@ interface Medication { drug_name: string; dosage: string; frequency: string; dur
 export default function ConsultationReviewScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const qc = useQueryClient();
   const { user } = useUser();
   const { data: consultation, isLoading } = useConsultation(id);
 
@@ -217,6 +220,12 @@ export default function ConsultationReviewScreen() {
       });
       const rxId: string = res.data.data.prescription_id;
       setSavedRxId(rxId);
+      // Advance the patient journey to the Prescription step (catches up any
+      // missing earlier links so the prescription stage completes).
+      if (consultation?.patient_id) {
+        await catchUpJourneyToPrescription(consultation.patient_id, id, rxId);
+        qc.invalidateQueries({ queryKey: ['patient-journey', consultation.patient_id] });
+      }
       Alert.alert('Saved', 'Prescription created successfully', [
         { text: 'View PDF', onPress: () => viewPdf(rxId) },
         {
@@ -390,6 +399,14 @@ export default function ConsultationReviewScreen() {
               }
             </TouchableOpacity>
           )}
+          {savedRxId && (
+            <TouchableOpacity
+              style={styles.invoiceBtn}
+              onPress={() => router.push({ pathname: '/create-invoice', params: { patient_id: consultation?.patient_id, consultation_id: id } })}
+            >
+              <Text style={styles.invoiceBtnText}>🧾 Generate Invoice</Text>
+            </TouchableOpacity>
+          )}
           <TouchableOpacity
             style={[styles.saveBtn, saving && styles.btnDisabled]}
             onPress={savePrescription}
@@ -528,6 +545,11 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: colors.primary, marginBottom: 10,
   },
   pdfBtnText: { color: colors.primary, fontWeight: '700', fontSize: 15 },
+  invoiceBtn: {
+    backgroundColor: colors.surface, borderRadius: 12, paddingVertical: 14, alignItems: 'center',
+    borderWidth: 1, borderColor: colors.secondary, marginBottom: 10,
+  },
+  invoiceBtnText: { color: colors.secondary, fontWeight: '700', fontSize: 15 },
   overlay: {
     flex: 1, backgroundColor: 'rgba(0,0,0,0.3)',
     justifyContent: 'center', alignItems: 'center', padding: 40,

@@ -44,3 +44,37 @@ export function usePatientAppointments(patientId: string) {
     enabled: !!patientId,
   });
 }
+
+export function usePatientDocuments(patientId: string) {
+  return useQuery({
+    queryKey: ['patient-documents', patientId],
+    queryFn: async () => {
+      const res = await api.get(`/patients/${patientId}/documents`);
+      return res.data.data.documents ?? [];
+    },
+    enabled: !!patientId,
+  });
+}
+
+export function usePatientJourney(patientId: string) {
+  return useQuery({
+    queryKey: ['patient-journey', patientId],
+    queryFn: async () => {
+      const res = await api.get('/journeys', { params: { patient_id: patientId, limit: 1 } });
+      const list = res.data?.data?.journeys ?? res.data?.data ?? [];
+      return Array.isArray(list) ? list[0] ?? null : list;
+    },
+    enabled: !!patientId,
+  });
+}
+
+export function usePatientAlerts(patientId: string) {
+  return useQuery({
+    queryKey: ['patient-alerts', patientId],
+    queryFn: async () => {
+      const res = await api.get(`/patients/${patientId}/patient-alerts`);
+      return res.data.data.alerts ?? res.data.data ?? [];
+    },
+    enabled: !!patientId,
+  });
+}

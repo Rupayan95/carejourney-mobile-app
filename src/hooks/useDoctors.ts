@@ -7,6 +7,8 @@ export interface DoctorSummary {
   title?: string;
   specialization?: string;
   department?: string;
+  consultation_fee?: number | null;
+  consultation_fees?: Record<string, number> | null;
 }
 
 export interface TimeSlot {

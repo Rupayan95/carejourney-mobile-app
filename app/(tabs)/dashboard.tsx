@@ -8,6 +8,7 @@ import { usePatient } from '../../src/hooks/usePatients';
 import { parseBackendDate } from '../../src/lib/datetime';
 import { api } from '../../src/lib/api';
 import { useUser } from '../../src/context/UserContext';
+import { catchUpJourneyForConfirm } from '../../src/lib/journey';
 import { clearTokens } from '../../src/lib/auth';
 import { colors, spacing, radius, font, shadow } from '../../src/theme';
 import {
@@ -25,9 +26,11 @@ function AppointmentCard({ item, canStartConsult, onRefresh }: {
 
   const { data: patient } = usePatient(item.patient_id);
   const patientName = patient ? `${patient.first_name} ${patient.last_name}` : item.patient_id;
+  const { user: cardUser } = useUser();
 
   async function confirmAppointment() {
     try {
+      await catchUpJourneyForConfirm(item.patient_id, item.appointment_id, cardUser?.organization_id);
       await api.patch(`/appointments/${item.appointment_id}/status`, { status: 'confirmed' });
       onRefresh();
     } catch (e: any) {

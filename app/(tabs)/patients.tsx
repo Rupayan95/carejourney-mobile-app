@@ -5,9 +5,10 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { usePatients, Patient } from '../../src/hooks/usePatients';
+import { useUser } from '../../src/context/UserContext';
 import { colors, spacing, radius, font } from '../../src/theme';
 import {
-  AppText, Card, Avatar, StatusBadge, Icon, EmptyState,
+  AppText, Card, Avatar, StatusBadge, Icon, EmptyState, Fab,
 } from '../../src/components/ui';
 
 function PatientCard({ item, onPress }: { item: Patient; onPress: () => void }) {
@@ -36,11 +37,15 @@ function PatientCard({ item, onPress }: { item: Patient; onPress: () => void }) 
 
 export default function PatientsScreen() {
   const router = useRouter();
+  const { user } = useUser();
   const [search, setSearch] = useState('');
   const { data: patients, isLoading, refetch, isRefetching } = usePatients(search || undefined);
 
+  const canRegister = ['receptionist', 'admin', 'physician', 'therapist', 'nurse'].includes(user?.role ?? '');
+
   return (
     <View style={styles.container}>
+      {canRegister && <Fab label="New" icon="person-add" onPress={() => router.push('/register/methods')} />}
       <View style={styles.searchBar}>
         <View style={styles.searchField}>
           <Icon name="search" size={18} color={colors.inkFaint} />
@@ -72,7 +77,7 @@ export default function PatientsScreen() {
               title={search ? `No patients for "${search}"` : 'No patients found'}
             />
           }
-          contentContainerStyle={{ paddingBottom: 24, paddingTop: spacing.md }}
+          contentContainerStyle={{ paddingBottom: 90, paddingTop: spacing.md }}
         />
       )}
     </View>

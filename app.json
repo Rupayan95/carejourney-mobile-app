@@ -9,7 +9,9 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "Allow Medicare to use the microphone for voice dictation of consultation notes."
+        "NSMicrophoneUsageDescription": "Allow Medicare to use the microphone for voice dictation of consultation notes.",
+        "NSCameraUsageDescription": "Allow Medicare to use the camera to scan patient registration forms.",
+        "NSPhotoLibraryUsageDescription": "Allow Medicare to select a photo of a patient registration form."
       }
     },
     "android": {
@@ -35,6 +37,13 @@
         "expo-audio",
         {
           "microphonePermission": "Allow Medicare to use the microphone for voice dictation of consultation notes."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Medicare to select a photo of a patient registration form.",
+          "cameraPermission": "Allow Medicare to use the camera to scan patient registration forms."
         }
       ]
     ],

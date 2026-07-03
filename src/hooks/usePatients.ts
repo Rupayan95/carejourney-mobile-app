@@ -26,7 +26,10 @@ export function usePatients(search?: string) {
 
 export function usePatient(patientId?: string) {
   return useQuery<Patient>({
-    queryKey: ['patient', patientId],
+    // Distinct key from usePatientDetail (which caches the RAW nested shape
+    // under ['patient', id]) — otherwise the shapes collide and names read
+    // as undefined on the dashboard/appointment cards.
+    queryKey: ['patient-summary', patientId],
     queryFn: async () => {
       const res = await api.get(`/patients/${patientId}`);
       const d = res.data.data;
